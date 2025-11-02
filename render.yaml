@@ -1,0 +1,14 @@
+services:
+  - type: worker
+    name: Qumtta-quiz-bot
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
+    envVars:
+      - key: BOT_TOKEN
+        value: "8458622801:AAFWZDxnB8ZGoQEtrljhuPGA8GHzghytpLU"
+      - key: ADMIN_ID
+        value: "7370025284"
+      - key: GROUP_ID
+        value: "-1003122522619"
