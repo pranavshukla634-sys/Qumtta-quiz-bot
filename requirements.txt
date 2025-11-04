@@ -1,6 +1,5 @@
 python-telegram-bot==20.8
 requests==2.32.3
 aiohttp==3.9.5
-asyncio==3.4.3
 python-dotenv==1.0.1
 loguru==0.7.2
