@@ -2,6 +2,12 @@ import io
 import json
 import asyncio
 import logging
+import threading
+import os
+import sys
+import time
+import requests
+
 from typing import List, Dict, Any, Set
 from datetime import datetime, timezone
 
@@ -30,9 +36,9 @@ from telegram.ext import (
 # 🔒 HARD-CODED CONFIG
 # -----------------------------
 ADMIN_ID = 7370025284
-GROUP_ID = -1003122522619
+GROUP_ID = -1002621279973
 BOT_TOKEN = "8458622801:AAFWZDxnB8ZGoQEtrljhuPGA8GHzghytpLU"
-
+HEALTH_URL = "https://pranav12.pythonanywhere.com/"
 # -----------------------------
 # STATES
 # -----------------------------
@@ -56,6 +62,8 @@ user_stats: Dict[int, Dict[str, Any]] = {}  # user_id -> {correct, incorrect, to
 readiness: Dict[str, Set[int]] = {}  # quiz_id -> set(user_ids who clicked ready)
 readiness_message_ids: Dict[str, int] = {}  # quiz_id -> message_id of ready message in group
 readiness_quiz_map: Dict[str, Dict[str, Any]] = {}  # quiz_id -> quiz object snapshot (archive)
+is_paused = False
+is_stopped = False
 
 # -----------------------------
 # Logging
@@ -95,30 +103,46 @@ async def send_json_file_to_user(user_chat_id: int, context: ContextTypes.DEFAUL
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "👋 नमस्ते! यह Quiz Bot है. नीचे दिए कमांड से शुरू करें:\n\n"
-        "/create_quiz — एक नया क्विज बनाएँ (DM में, केवल admin).\n"
-        "/start_quiz — लोड किया हुआ क्विज ग्रुप में चलाएँ (केवल admin और configured group).\n"
-        "/cancel — वर्तमान ऑपरेशन रद्द करें.\n\n"
-        "क्विज बनाने का नया फ्लो:\n"
-        "1) टाइटल पूछेगा.\n"
-        "2) फिर Poll settings (तीन लाइनें): option_count, option_texts comma-separated, timer in seconds.\n"
-        "3) प्रश्न भेजें — एक ही संदेश में कई प्रश्न भेज सकते हैं; प्रश्नों के बीच एक खाली लाइन रखें.\n"
-        "4) /done के बाद correct answers comma-separated भेजें.\n"
-    )
-    if update.effective_chat.type == 'private':
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if user.id == ADMIN_ID:
+        text = (
+            "👋 नमस्ते! यह Quiz Bot है. नीचे दिए कमांड से शुरू करें:\n\n"
+            "/create_quiz — एक नया क्विज बनाएँ (DM में, केवल admin).\n"
+            "/start_quiz — लोड किया हुआ क्विज ग्रुप में चलाएँ (केवल admin और configured group).\n"
+            "/cancel — वर्तमान ऑपरेशन रद्द करें.\n\n"
+            "क्विज बनाने का नया फ्लो:\n"
+            "1️⃣ टाइटल पूछेगा.\n"
+            "2️⃣ फिर Poll settings (तीन लाइनें): option_count, option_texts comma-separated, timer in seconds.\n"
+            "3️⃣ प्रश्न भेजें — एक ही संदेश में कई प्रश्न भेज सकते हैं; प्रश्नों के बीच एक खाली लाइन रखें.\n"
+            "4️⃣ /done के बाद correct answers comma-separated भेजें.\n"
+        )
         await update.message.reply_text(text, reply_markup=build_start_keyboard())
     else:
-        await update.message.reply_text("Use /create_quiz in DM (admin only) or /start_quiz in group if a quiz is already loaded.")
-
-
+        # Non-admin (in private or group)
+        group_link = "https://t.me/+e0yQys0Dvf5lNGRl"  # ← यहां अपने Qumtta World ग्रुप का लिंक डालें
+        welcome_text = (
+            "‼️ *Welcome To Qumtta World!* ‼️\n\n"
+            "This is the official quiz bot of Qumtta World.\n"
+            "Join our group for daily quizzes and fun challenges!"
+        )
+        buttons = [
+            [InlineKeyboardButton("🔗 Join Qumtta World", url=group_link)]
+        ]
+        await update.message.reply_text(
+            welcome_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
 
 async def create_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     # only in private and only admin
     if update.effective_chat.type != 'private':
         return
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ केवल admin क्विज बना सकता है.")
+        await update.message.reply_text("❌Unauthorised Access.")
         return
 
     # initialize storage
@@ -284,7 +308,12 @@ async def correct_answers_received(update: Update, context: ContextTypes.DEFAULT
     }
 
     for q_text, correct_idx in zip(context.user_data['questions'], correct_indices):
-        quiz['questions'].append({'text': q_text, 'options': context.user_data['option_texts'], 'correct': correct_idx, 'timer': context.user_data['timer']})
+        quiz['questions'].append({
+            'text': q_text,
+            'options': context.user_data['option_texts'],
+            'correct': correct_idx,
+            'timer': context.user_data['timer']
+        })
 
     # Save to current_quiz (global) so it can be started in group
     global current_quiz
@@ -296,17 +325,25 @@ async def correct_answers_received(update: Update, context: ContextTypes.DEFAULT
     readiness_quiz_map[quiz_id] = quiz
 
     # send json file back AND send action message with buttons (Start Quiz / Publish Result)
-    await send_json_file_to_user(update.effective_chat.id, context, quiz, filename=f"quiz_{quiz_id}.json")
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in context.user_data['title'])
+    filename = f"{safe_title}.json"
+    await send_json_file_to_user(update.effective_chat.id, context, quiz, filename=filename)
 
     # prepare inline buttons - keep these persistent (don't edit them away later)
     buttons = [
-        [InlineKeyboardButton("Start Quiz", callback_data=f"start_quiz:{quiz_id}"),
-         InlineKeyboardButton("Publish Result", callback_data=f"publish_result:{quiz_id}")]
+        [
+            InlineKeyboardButton("Start Quiz", callback_data=f"start_quiz:{quiz_id}"),
+            InlineKeyboardButton("Publish Result", callback_data=f"publish_result:{quiz_id}")
+        ]
     ]
-    await update.message.reply_text("✅ Quiz saved. नीचे से आगे की कार्रवाई करें:", reply_markup=InlineKeyboardMarkup(buttons))
+    await update.message.reply_text(
+        "✅ Quiz saved. नीचे से आगे की कार्रवाई करें:",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
     context.user_data.clear()
     return ConversationHandler.END
+
 
 
 # -----------------------------
@@ -327,7 +364,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     byte_array = await file.download_as_bytearray()
     try:
         global current_quiz
-        current_quiz = json.loads(byte_array)
+        current_quiz = json.loads(byte_array.decode("utf-8"))
         # ensure quiz_id
         if 'quiz_id' not in current_quiz:
             current_quiz['quiz_id'] = str(int(datetime.now(tz=timezone.utc).timestamp()))
@@ -354,7 +391,7 @@ async def start_quiz_button_cb(update: Update, context: ContextTypes.DEFAULT_TYP
     _, quiz_id = data.split(':', 1)
     if update.effective_user.id != ADMIN_ID:
         # inform user via alert but DO NOT edit original admin message
-        await query.answer(text="❌ केवल admin ही यह कर सकता है.", show_alert=True)
+        await query.answer(text="❌Unauthorised Access", show_alert=True)
         return
 
     quiz = readiness_quiz_map.get(quiz_id)
@@ -373,13 +410,22 @@ async def start_quiz_button_cb(update: Update, context: ContextTypes.DEFAULT_TYP
     timer = quiz.get('timer')
 
     text = (
-        "🎉 Welcome to Qumtta World\n"
-        "I am Your Qumtta Quiz Bot\n\n"
+        "‼️ *Welcome to Qumtta World!* ‼️\n"
+        "⚜ *I am Your Qumtta Quiz Bot* ⚜\n\n"
         f"*Quiz Title:* {title}\n"
-        f"*No of Questions:* {total_q}\n"
+        f"*No. of Questions:* {total_q}\n"
         f"*Timer:* {timer} seconds\n\n"
-        "Click below when you are ready. Minimum 2 participants required to start."
+        "*Note:-*\n"
+        "1️⃣ Leaderboard will be prepared on the basis of your *first attempt only.*\n\n"
+        "📢 *Quiz Timings:*\n"
+        "💻 *Computer:*\n"
+        "🕧 02:30 PM  🕓 6:30 PM\n\n"
+        "💻 *English:*\n"
+        "🕧 03:00 PM  🕓 7:00PM\n\n"
+        "👇 *Click below to start the Quiz!*\n"
+        "_Minimum 2 participants required to start._"
     )
+
 
     # create 'I am ready' button with count
     readiness[quiz_id] = set()
@@ -387,8 +433,8 @@ async def start_quiz_button_cb(update: Update, context: ContextTypes.DEFAULT_TYP
     msg = await context.bot.send_message(GROUP_ID, text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     readiness_message_ids[quiz_id] = msg.message_id
 
-    # schedule readiness check after 15 seconds
-    context.job_queue.run_once(finalize_readiness, 15, data={'quiz_id': quiz_id, 'initiator': update.effective_user.id})
+    # schedule readiness check after 45 seconds
+    context.job_queue.run_once(finalize_readiness, 45, data={'quiz_id': quiz_id, 'initiator': update.effective_user.id})
 
     # do NOT edit the original admin DM message (keep Start/Publish buttons visible).
     await query.answer(text="✅ Quiz start initiated and posted to group for readiness.")
@@ -478,26 +524,43 @@ async def start_quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total_q = len(current_quiz.get('questions', []))
     timer = current_quiz.get('timer')
     text = (
-        "🎉 Welcome to Qumtta World\n"
-        "I am Your Qumtta Quiz Bot\n\n"
+        "‼️ *Welcome to Qumtta World!* ‼️\n"
+        "⚜ *I am Your Qumtta Quiz Bot* ⚜\n\n"
         f"*Quiz Title:* {title}\n"
-        f"*No of Questions:* {total_q}\n"
+        f"*No. of Questions:* {total_q}\n"
         f"*Timer:* {timer} seconds\n\n"
-        "Click below when you are ready. Minimum 2 participants required to start."
+        "*Note:-*\n"
+        "1️⃣ Leaderboard will be prepared on the basis of your *first attempt only.*\n\n"
+        "📢 *Quiz Timings:*\n"
+        "💻 *Computer:*\n"
+        "🕧 02:30 PM  🕓 6:30 PM\n\n"
+        "💻 *English:*\n"
+        "🕧 03:00 PM  🕓 7:00PM\n\n"
+        "👇 *Click below to start the Quiz!*\n"
+        "_Minimum 2 participants required to start._"
     )
+
     readiness[quiz_id] = set()
     keyboard = [[InlineKeyboardButton(f"I am ready (0)", callback_data=f"ready:{quiz_id}")]]
     msg = await context.bot.send_message(GROUP_ID, text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     readiness_message_ids[quiz_id] = msg.message_id
-    context.job_queue.run_once(finalize_readiness, 15, data={'quiz_id': quiz_id, 'initiator': user.id})
+    context.job_queue.run_once(finalize_readiness, 45, data={'quiz_id': quiz_id, 'initiator': user.id})
 
 
 # -----------------------------
 # QUESTIONS / POLLS
 # -----------------------------
 async def send_next_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    global correct_options, current_quiz
-    # when called from job, context is available and current_quiz should be set
+    global correct_options, current_quiz, is_paused, is_stopped
+
+    # अगर quiz बंद या paused है तो कुछ न भेजो
+    if is_stopped:
+        return
+    if is_paused:
+        await context.bot.send_message(chat_id, "⏸️ Quiz paused है. Resume करने के लिए /resume भेजें.")
+        return
+
+    # जब current_quiz None हो (stop किया गया हो या कोई quiz न हो)
     if current_quiz is None:
         return
 
@@ -522,17 +585,25 @@ async def send_next_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
         open_period=q['timer'],
         is_anonymous=False,
     )
+
     poll_id = message.poll.id
     correct_options[poll_id] = q['correct']
 
     # record poll sent time
     poll_sent_time[poll_id] = datetime.now(tz=timezone.utc).timestamp()
 
-    # schedule next question
-    context.job_queue.run_once(next_question_callback, q['timer'] + 1, data=chat_id)
+    # schedule next question — लेकिन केवल तभी अगर quiz paused या stopped न हो
+    if not is_paused and not is_stopped:
+        context.job_queue.run_once(next_question_callback, q['timer'] + 1, data=chat_id)
 
 
 async def next_question_callback(context: ContextTypes.DEFAULT_TYPE):
+    global is_paused, is_stopped
+
+    # अगर quiz paused या stopped है तो आगे मत भेजो
+    if is_stopped or is_paused:
+        return
+
     chat_id = context.job.data
     await send_next_question(context, chat_id)
 
@@ -632,10 +703,16 @@ async def end_quiz(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
         await context.bot.send_message(ADMIN_ID, "✅ Quiz finished. Leaderboard updated and file sent.", reply_markup=InlineKeyboardMarkup(buttons))
     except Exception as e:
         logger.exception("Failed to send updated JSON to admin: %s", e)
-
     # 🟢 Send “Thanks” message to group
     try:
-        await context.bot.send_message(chat_id, "🙏 Thank you everyone for participating in the quiz!\nStay tuned for more quizzes soon! 🎉")
+        await context.bot.send_message(
+            chat_id,
+            "🎉 *Thank you, everyone!* 🎉\n\n"
+            "Your enthusiasm made this quiz truly exciting!\n"
+            "Stay tuned — more fun and challenging quizzes are coming soon. 🏆\n\n"
+            "— *Your Qumtta Quiz Bot* 🤖",
+            parse_mode="Markdown"
+        )
     except Exception:
         pass
 
@@ -648,6 +725,64 @@ async def end_quiz(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     readiness.clear()
     readiness_message_ids.clear()
     # keep readiness_quiz_map intact for later publish
+# -----------------------------
+# ADMIN CONTROL COMMANDS
+# -----------------------------
+
+async def pause_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global is_paused, is_stopped
+    if update.effective_chat.id != GROUP_ID or update.effective_user.id != ADMIN_ID:
+        return
+
+    if is_stopped:
+        await update.message.reply_text("⚠️ Quiz पहले ही बंद हो चुका है.")
+        return
+
+    if is_paused:
+        await update.message.reply_text("⏸️ Quiz पहले ही pause है.")
+        return
+
+    is_paused = True
+    await update.message.reply_text("⏸️ Quiz को pause कर दिया गया है.\nResume करने के लिए /resume भेजें.")
+
+
+async def resume_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global is_paused, is_stopped
+    if update.effective_chat.id != GROUP_ID or update.effective_user.id != ADMIN_ID:
+        return
+
+    if is_stopped:
+        await update.message.reply_text("⚠️ Quiz पहले ही बंद किया जा चुका है.")
+        return
+
+    if not is_paused:
+        await update.message.reply_text("⚠️ Quiz पहले से चल रहा है.")
+        return
+
+    is_paused = False
+    await update.message.reply_text("▶️ Quiz फिर से शुरू कर दिया गया है.")
+    await send_next_question(context, update.effective_chat.id)
+
+
+async def stop_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global is_stopped, is_paused, current_quiz
+
+    if update.effective_chat.id != GROUP_ID or update.effective_user.id != ADMIN_ID:
+        return
+
+    if is_stopped:
+        await update.message.reply_text("⚠️ Quiz पहले ही बंद किया जा चुका है.")
+        return
+
+    is_stopped = True
+    is_paused = False
+    current_quiz = None
+
+    await update.message.reply_text(
+        "🛑 Quiz को *पूरी तरह बंद* कर दिया गया है.\n"
+        "Leaderboard देखने या प्रकाशित करने के लिए बाद में /publish कमांड या '📢 Publish Results' बटन का उपयोग करें.",
+        parse_mode="Markdown"
+    )
 
 # ✅ Publish Result callback — leaderboard with medals + clean JSON return
 async def publish_result_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -674,15 +809,21 @@ async def publish_result_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 🏅 Medal icons
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-
     # 🏆 Build formatted leaderboard text
-    text = f"🏆 *Final Leaderboard for:* {quiz.get('title', 'Untitled Quiz')}\n\n"
+    text = (
+        f"📊 *Qumtta-Leaderboard*\n"
+        f"🏷️ *Quiz Name:* {quiz.get('title', 'Untitled Quiz')}\n\n"
+    )
     for rank, e in enumerate(leaderboard, start=1):
         medal = medals.get(rank, f"#{rank}")
         text += (
-            f"{medal} *{e['name']}* — "
-            f"✅ {e['correct']}  ❌ {e['incorrect']}  ⏱️ {round(e['total_time'], 1)}s\n"
+            f"{medal} *{e['name']}*\n"
+            f"✅ Correct: {e['correct']}\n"
+            f"❌ Incorrect: {e['incorrect']}\n"
+            f"⏱️ Time: {round(e['total_time'], 1)}s\n\n"
         )
+
+    text += "— *Your Qumtta Quiz Bot* 🤖"
 
     try:
         # 📢 ग्रुप में leaderboard भेजो
@@ -703,21 +844,27 @@ async def publish_result_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "created_at": quiz.get("created_at"),
         }
 
-        # 📨 Cleaned JSON वापस admin को भेजना
-        json_str = json.dumps(cleaned_quiz, indent=4, ensure_ascii=False)
-        bio = io.BytesIO(json_str.encode("utf-8"))
-        bio.name = f"cleaned_quiz_{quiz_id}.json"
-        await context.bot.send_document(
-            chat_id=ADMIN_ID,
-            document=InputFile(bio, filename=bio.name),
-            caption="🧹 Cleaned quiz data (participants removed).",
-        )
 
         # ✅ Admin को confirmation
-        await query.edit_message_text("✅ Leaderboard published and cleaned JSON sent to admin!")
+        await query.edit_message_text("✅ Leaderboard published successfully!\n\nYour Qumtta Quiz Bot 🤖")
+
 
     except Exception as e:
         await query.edit_message_text(f"⚠️ Failed to publish leaderboard:\n{e}")
+
+async def refresh_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only command to safely restart the bot and confirm health."""
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ You are not authorized to refresh the bot.")
+        return
+
+    await update.message.reply_text("♻️ Restarted bot.")
+
+    def delayed_restart():
+        time.sleep(3)
+        os.execl(sys.executable, sys.executable, *sys.argv)
+
+    threading.Thread(target=delayed_restart, daemon=True).start()
 
 # -----------------------------
 # MAIN (unchanged except for new end_quiz)
@@ -749,6 +896,10 @@ def main():
     application.add_handler(CallbackQueryHandler(start_quiz_button_cb, pattern=r'^start_quiz:'))
     application.add_handler(CallbackQueryHandler(publish_result_cb, pattern=r'^publish_result:'))
     application.add_handler(CallbackQueryHandler(ready_button_cb, pattern=r'^ready:'))
+    application.add_handler(CommandHandler('pause', pause_quiz))
+    application.add_handler(CommandHandler('resume', resume_quiz))
+    application.add_handler(CommandHandler('stop', stop_quiz))
+    application.add_handler(CommandHandler('refresh', refresh_bot))
 
     logger.info("🤖 Bot is running with extended features (Thanks msg + first-attempt leaderboard)...")
     application.run_polling()
