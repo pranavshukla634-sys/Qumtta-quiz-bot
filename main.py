@@ -905,5 +905,22 @@ def main():
     application.run_polling()
 
 
-if __name__ == '__main__':
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ Qumtta Quiz Bot is alive!"
+
+def run_server():
+    app.run(host='0.0.0.0', port=8080)
+
+if __name__ == "__main__":
+    # Flask server को background में चलाना
+    threading.Thread(target=run_server).start()
+    # आपका main() function (Telegram bot) भी साथ चलेगा
     main()
+
+
