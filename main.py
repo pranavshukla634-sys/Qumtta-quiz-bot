@@ -871,8 +871,22 @@ async def refresh_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MAIN (unchanged except for new end_quiz)
 # -----------------------------
 def main():
+    """Start the bot in WEBHOOK mode (Render-friendly, no conflicts)"""
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # ======================
+    # COMMAND HANDLERS
+    # ======================
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('start_quiz', start_quiz_command))
+    application.add_handler(CommandHandler('pause', pause_quiz))
+    application.add_handler(CommandHandler('resume', resume_quiz))
+    application.add_handler(CommandHandler('stop', stop_quiz))
+    application.add_handler(CommandHandler('refresh', refresh_bot))
+
+    # ======================
+    # CONVERSATION HANDLER (Create Quiz)
+    # ======================
     conv = ConversationHandler(
         entry_points=[CommandHandler('create_quiz', create_quiz)],
         states={
@@ -888,51 +902,30 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel_or_undo)],
         allow_reentry=True,
     )
-
-    application.add_handler(CommandHandler('start', start))
     application.add_handler(conv)
-    application.add_handler(CommandHandler('start_quiz', start_quiz_command))
+
+    # ======================
+    # OTHER HANDLERS
+    # ======================
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, handle_document))
     application.add_handler(PollAnswerHandler(poll_answer))
     application.add_handler(CallbackQueryHandler(start_quiz_button_cb, pattern=r'^start_quiz:'))
     application.add_handler(CallbackQueryHandler(publish_result_cb, pattern=r'^publish_result:'))
     application.add_handler(CallbackQueryHandler(ready_button_cb, pattern=r'^ready:'))
-    application.add_handler(CommandHandler('pause', pause_quiz))
-    application.add_handler(CommandHandler('resume', resume_quiz))
-    application.add_handler(CommandHandler('stop', stop_quiz))
-    application.add_handler(CommandHandler('refresh', refresh_bot))
 
-    logger.info("🤖 Bot is running with extended features (Thanks msg + first-attempt leaderboard)...")
-    application.run_polling()
+    # ======================
+    # LOG & START WEBHOOK
+    # ======================
+    logger.info("Qumtta Quiz Bot started in WEBHOOK mode...")
 
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "✅ Qumtta Quiz Bot is alive and healthy on Render!"
-
-
-def run_server():
-    print("🚀 Starting Flask health-check server on port 8080...")
-    app.run(host='0.0.0.0', port=8080)
-
-
-def keep_alive():
-    while True:
-        try:
-            url = "https://qumtta-quiz-bot.onrender.com"
-            requests.get(url)
-            print(f"🌐 Pinged self to stay awake → {url}")
-        except Exception as e:
-            print("⚠️ Ping failed:", e)
-        time.sleep(600)
-
+    # ---- WEBHOOK MODE (Render) ----
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=8080,
+        url_path=BOT_TOKEN,  # /8458622801:AAFW...
+        webhook_url=f"https://qumtta-quiz-bot.onrender.com/{BOT_TOKEN}"
+    )
 
 if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_server, daemon=True)
-    flask_thread.start()
-
-    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
-    keep_alive_thread.start()
-
+    print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
