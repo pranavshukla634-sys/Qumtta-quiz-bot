@@ -39,7 +39,7 @@ from telegram.ext import (
 ADMIN_ID = 7370025284
 GROUP_ID = -5057716875
 BOT_TOKEN = "8458622801:AAFWZDxnB8ZGoQEtrljhuPGA8GHzghytpLU"
-HEALTH_URL = "https://Qumtta-quiz-bot.pythonanywhere.com/"
+HEALTH_URL = "https://qumtta-quiz-bot.onrender.com"
 # -----------------------------
 # STATES
 # -----------------------------
@@ -936,6 +936,7 @@ if __name__ == "__main__":
     keep_alive_thread.start()
 
     main()
+
 
 
 
