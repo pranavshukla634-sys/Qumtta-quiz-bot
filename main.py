@@ -867,6 +867,24 @@ async def refresh_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     threading.Thread(target=delayed_restart, daemon=True).start()
 
+app = Flask(__name__)
+
+@app.route('/')
+def health():
+    return "Qumtta Quiz Bot is ALIVE! 🤖", 200
+
+def run_flask():
+    app.run(host='0.0.0.0', port=8081)
+
+def keep_alive():
+    url = "https://qumtta-quiz-bot.onrender.com/"  # अपना URL डालो
+    while True:
+        try:
+            requests.get(url, timeout=10)
+            print("Self-ping sent! Bot is awake.")
+        except:
+            print("Ping failed...")
+        time.sleep(300)  # 10 min
 # -----------------------------
 # MAIN (unchanged except for new end_quiz)
 # -----------------------------
@@ -927,7 +945,14 @@ def main():
     )
 
 if __name__ == "__main__":
+    print("Starting Health Server...")
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    print("Starting Self-Ping (every 5 min)...")
+    threading.Thread(target=keep_alive, daemon=True).start()
+    
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
