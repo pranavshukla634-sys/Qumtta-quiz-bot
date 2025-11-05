@@ -912,15 +912,30 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "✅ Qumtta Quiz Bot is alive!"
+    return "✅ Qumtta Quiz Bot is alive and healthy on Render!"
+
 
 def run_server():
+    print("🚀 Starting Flask health-check server on port 8080...")
     app.run(host='0.0.0.0', port=8080)
 
+
+def keep_alive():
+    while True:
+        try:
+            url = "https://qumtta-quiz-bot.onrender.com"
+            requests.get(url)
+            print(f"🌐 Pinged self to stay awake → {url}")
+        except Exception as e:
+            print("⚠️ Ping failed:", e)
+        time.sleep(600)
+
+
 if __name__ == "__main__":
-    # Flask server को background में चलाना
-    threading.Thread(target=run_server).start()
-    # आपका main() function (Telegram bot) भी साथ चलेगा
+    flask_thread = threading.Thread(target=run_server, daemon=True)
+    flask_thread.start()
+
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+    keep_alive_thread.start()
+
     main()
-
-
