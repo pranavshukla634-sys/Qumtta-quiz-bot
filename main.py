@@ -8,6 +8,7 @@ import sys
 import time
 import requests
 
+from flask import Flask
 from typing import List, Dict, Any, Set
 from datetime import datetime, timezone
 
@@ -904,10 +905,6 @@ def main():
     logger.info("🤖 Bot is running with extended features (Thanks msg + first-attempt leaderboard)...")
     application.run_polling()
 
-
-from flask import Flask
-import threading
-
 app = Flask(__name__)
 
 @app.route('/')
@@ -939,4 +936,5 @@ if __name__ == "__main__":
     keep_alive_thread.start()
 
     main()
+
 
