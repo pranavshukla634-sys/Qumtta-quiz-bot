@@ -50,6 +50,7 @@ ACTIVE_GROUPS: Set[int] = {GROUP_ID} # Main group + auto-add new ones
 # -----------------------------
 # GLOBAL RUNTIME DATA
 # -----------------------------
+active_users: Set[int] = set()          # <-- NEW: every /start
 quiz_completed = False
 questions_sent_per_group: Dict[int, int] = {}
 current_quiz: Dict[str, Any] = None
@@ -132,6 +133,7 @@ async def send_json_file_to_user(user_chat_id: int, context: ContextTypes.DEFAUL
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    active_users.add(user.id)
     chat = update.effective_chat
     if user.id == ADMIN_ID:
         text = (
@@ -1299,6 +1301,70 @@ async def poll_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _reset_poll_data(update.effective_user.id)
     await update.message.reply_text("Poll-based quiz creation cancelled.")
     return ConversationHandler.END
+
+# -------------------------------------------------
+# ADMIN: /stats  →  total users + total groups
+# -------------------------------------------------
+@admin_only
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_groups = len(ACTIVE_GROUPS)
+    total_users  = len(active_users)          # <-- NEW
+    text = (
+        "*BOT STATS*\n\n"
+        f"*Total Active Groups:* `{total_groups}`\n"
+        f"*Total Users (started bot):* `{total_users}`\n"
+        "— Qumtta Quiz Bot"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+# -------------------------------------------------
+# ADMIN: /exdb  →  export DB (groups + users) to JSON
+# -------------------------------------------------
+@admin_only
+async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = {
+        "groups": list(ACTIVE_GROUPS),
+        "users" : list(active_users)
+    }
+    json_str = json.dumps(data, indent=4, ensure_ascii=False)
+    bio = io.BytesIO(json_str.encode("utf-8"))
+    bio.name = f"qumtta_db_{int(datetime.now(tz=timezone.utc).timestamp())}.json"
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=InputFile(bio, filename=bio.name)
+    )
+    await update.message.reply_text("DB exported!")
+
+
+# -------------------------------------------------
+# ADMIN: /updb  →  upload JSON and restore DB
+# -------------------------------------------------
+@admin_only
+async def upload_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.document or not update.message.document.file_name.endswith('.json'):
+        await update.message.reply_text("Please upload a *.json* file created with /exdb.")
+        return
+
+    file = await update.message.document.get_file()
+    byte_data = await file.download_as_bytearray()
+    try:
+        payload = json.loads(byte_data.decode("utf-8"))
+        # ---- restore groups ----
+        for gid in payload.get("groups", []):
+            ACTIVE_GROUPS.add(int(gid))
+        # ---- restore users ----
+        for uid in payload.get("users", []):
+            active_users.add(int(uid))
+
+        await update.message.reply_text(
+            f"DB restored!\n"
+            f"Groups: {len(ACTIVE_GROUPS)}\n"
+            f"Users : {len(active_users)}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Import failed: {e}")
+        
 # -----------------------------
 # MAIN (unchanged except for new end_quiz)
 # -----------------------------
@@ -1355,7 +1421,9 @@ def main():
     application.add_handler(CommandHandler('rm_group', admin_only(remove_group)))
     application.add_handler(CommandHandler('stats', stats_command))
     application.add_handler(CommandHandler('broadcast', broadcast_command))
-
+    application.add_handler(CommandHandler('stats', stats_command))
+    application.add_handler(CommandHandler('exdb', export_db))
+    application.add_handler(CommandHandler('updb', upload_db))
     # ====================== OTHER HANDLERS ======================
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, admin_only(handle_document)))
     application.add_handler(PollAnswerHandler(poll_answer))
@@ -1386,7 +1454,3 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
-
-
-
-
