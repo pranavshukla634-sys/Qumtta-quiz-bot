@@ -1480,10 +1480,10 @@ def main():
     application.add_handler(CommandHandler('broadcast', broadcast_command))
     application.add_handler(CommandHandler('stats', stats_command))
     application.add_handler(CommandHandler('exdb', export_db))
-    application.add_handler(CommandHandler('updb', admin_only(upload_db)))
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, admin_only(upload_db)))
     # ====================== OTHER HANDLERS ======================
     application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, admin_only(handle_document)))
+    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, admin_only(upload_db)))
+    application.add_handler(CommandHandler('updb', admin_only(upload_db)))
     application.add_handler(PollAnswerHandler(poll_answer))
     application.add_handler(CallbackQueryHandler(start_quiz_button_cb, pattern=r'^start_quiz:'))
     application.add_handler(CallbackQueryHandler(publish_result_cb, pattern=r'^publish_result:'))
@@ -1511,5 +1511,6 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
