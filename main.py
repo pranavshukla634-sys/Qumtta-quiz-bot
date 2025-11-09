@@ -352,54 +352,31 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     document = update.message.document
-    if not document.file_name.endswith('.json'):
-        await update.message.reply_text("Please send a valid .json quiz file.")
+    if not document:
         return
 
-    # === SKIP DB BACKUP FILES ===
-    if document.file_name.startswith("qumtta_db_"):
-        await update.message.reply_text(
-            "This is a DB backup file. Use /updb to restore.\n"
-            "Quiz JSON files should contain 'title' and 'questions'."
-        )
+    filename = document.file_name
+    file_lower = filename.lower()
+
+    # ========= .JSON → QUIZ LOAD =========
+    if file_lower.endswith('.json'):
+        # ... (पहले वाला JSON load logic)
+        # ← वही कोड जो मैंने पिछले message में दिया था
         return
 
-    # === Proceed only if it's a quiz JSON ===
-    file = await document.get_file()
-    byte_array = await file.download_as_bytearray()
-    try:
-        data = json.loads(byte_array.decode("utf-8"))
+    # ========= .TXT → DB RESTORE =========
+    if filename.startswith('qumtta_db_') and file_lower.endswith('.txt'):
+        # ... (पहले वाला TXT restore logic)
+        # ← वही कोड जो मैंने पिछले message में दिया था
+        return
 
-        # Validate quiz structure
-        if "title" not in data or "questions" not in data:
-            await update.message.reply_text("Invalid quiz JSON: Missing 'title' or 'questions'.")
-            return
-
-        global current_quiz
-        current_quiz = data
-        if 'quiz_id' not in current_quiz:
-            current_quiz['quiz_id'] = str(int(datetime.now(tz=timezone.utc).timestamp()))
-        quiz_id = current_quiz['quiz_id']
-        readiness_quiz_map[quiz_id] = current_quiz
-
-        buttons = [
-            [
-                InlineKeyboardButton("Start Quiz", callback_data=f"start_quiz:{quiz_id}"),
-                InlineKeyboardButton("Publish Result", callback_data=f"publish_result:{quiz_id}")
-            ],
-            [
-                InlineKeyboardButton("Start in All Groups", callback_data=f"start_all:{quiz_id}"),
-                InlineKeyboardButton("Publish in All Groups", callback_data=f"publish_all:{quiz_id}")
-            ]
-        ]
-        await update.message.reply_text(
-            "Quiz loaded from JSON. Use buttons to start or publish:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    except json.JSONDecodeError:
-        await update.message.reply_text("Invalid JSON file.")
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+    # ========= INVALID FILE =========
+    await update.message.reply_text(
+        "Unsupported file.\n"
+        "• `.json` → Load Quiz\n"
+        "• `qumtta_db_*.txt` → Restore DB",
+        parse_mode="Markdown"
+    )
 
 # -----------------------------
 # CALLBACKS: Start Quiz flow / readiness
@@ -1365,67 +1342,10 @@ async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
         document=InputFile(bio, filename=bio.name)
     )
     await update.message.reply_text("DB exported! Use /updb to restore.")
-
-# -------------------------------------------------
-# ADMIN: /updb  →  upload JSON and restore DB
-# -------------------------------------------------
-@admin_only
-async def upload_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.document or not update.message.document.file_name.endswith('.json'):
-        await update.message.reply_text("Please upload a *.json* file created with /exdb.")
-        return
-
-    file = await update.message.document.get_file()
-    byte_data = await file.download_as_bytearray()
-    try:
-        payload = json.loads(byte_data.decode("utf-8"))
-
-        # === DB VALIDATION: Sirf 'groups' aur 'users' hone chahiye ===
-        if not isinstance(payload.get("groups"), list) or not isinstance(payload.get("users"), list):
-            await update.message.reply_text("Invalid DB file: Missing 'groups' or 'users' list.")
-            return
-
-        if any(key not in ["groups", "users"] for key in payload.keys()):
-            await update.message.reply_text("Invalid DB file: Contains unknown fields (only 'groups' and 'users' allowed).")
-            return
-
-        # === Restore ===
-        restored_groups = 0
-        restored_users = 0
-
-        for gid in payload.get("groups", []):
-            try:
-                gid = int(gid)
-                ACTIVE_GROUPS.add(gid)
-                restored_groups += 1
-            except:
-                pass
-
-        for uid in payload.get("users", []):
-            try:
-                uid = int(uid)
-                active_users.add(uid)
-                restored_users += 1
-            except:
-                pass
-
-        await update.message.reply_text(
-            f"DB restored successfully!\n"
-            f"Groups: {restored_groups}\n"
-            f"Users: {restored_users}\n"
-            f"Total Active Groups: {len(ACTIVE_GROUPS)}\n"
-            f"Total Users: {len(active_users)}"
-        )
-
-    except json.JSONDecodeError:
-        await update.message.reply_text("Invalid JSON format.")
-    except Exception as e:
-        await update.message.reply_text(f"Import failed: {e}")
         
 # -----------------------------
 # MAIN (unchanged except for new end_quiz)
-# -----------------------------
-def main():
+# -----------------------------def main():
     """Start the bot — FULLY SECURED FOR ADMIN ONLY"""
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -1436,7 +1356,7 @@ def main():
 
     # ====================== TEXT-BASED QUIZ CREATOR (/createviatxt) ======================
     conv = ConversationHandler(
-        entry_points=[CommandHandler('createviatxt', create_quiz)],  # admin_only हटाओ
+        entry_points=[CommandHandler('createviatxt', create_quiz)],
         states={
             TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, title_received)],
             POLL_SETTINGS: [MessageHandler(filters.TEXT & ~filters.COMMAND, poll_settings_received)],
@@ -1454,7 +1374,7 @@ def main():
 
     # ====================== POLL-BASED QUIZ CREATOR (/createviapoll) ======================
     poll_conv = ConversationHandler(
-        entry_points=[CommandHandler("createviapoll", create_via_poll)],  # admin_only हटाओ
+        entry_points=[CommandHandler("createviapoll", create_via_poll)],
         states={
             POLL_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, poll_title)],
             POLL_TIMER: [MessageHandler(filters.TEXT & ~filters.COMMAND, poll_timer)],
@@ -1469,7 +1389,7 @@ def main():
     )
     application.add_handler(poll_conv)
 
-    # ====================== ADMIN ONLY COMMANDS (बाहर से) ======================
+    # ====================== ADMIN ONLY COMMANDS ======================
     application.add_handler(CommandHandler('start_quiz', admin_only(start_quiz_command)))
     application.add_handler(CommandHandler('pause', admin_only(pause_quiz)))
     application.add_handler(CommandHandler('resume', admin_only(resume_quiz)))
@@ -1478,12 +1398,15 @@ def main():
     application.add_handler(CommandHandler('rm_group', admin_only(remove_group)))
     application.add_handler(CommandHandler('stats', stats_command))
     application.add_handler(CommandHandler('broadcast', broadcast_command))
-    application.add_handler(CommandHandler('stats', stats_command))
     application.add_handler(CommandHandler('exdb', export_db))
+
+    # ====================== DOCUMENT HANDLER (NEW: .json OR .txt) ======================
+    application.add_handler(MessageHandler(
+        filters.Document.ALL & filters.ChatType.PRIVATE,
+        admin_only(handle_document)  # ← यही एक handler सब संभालेगा
+    ))
+
     # ====================== OTHER HANDLERS ======================
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, admin_only(handle_document)))
-    application.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, admin_only(upload_db)))
-    application.add_handler(CommandHandler('updb', admin_only(upload_db)))
     application.add_handler(PollAnswerHandler(poll_answer))
     application.add_handler(CallbackQueryHandler(start_quiz_button_cb, pattern=r'^start_quiz:'))
     application.add_handler(CallbackQueryHandler(publish_result_cb, pattern=r'^publish_result:'))
@@ -1511,6 +1434,7 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
 
