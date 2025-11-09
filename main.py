@@ -1329,20 +1329,23 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------------------------------------------------
 @admin_only
 async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = {
-        "groups": list(ACTIVE_GROUPS),
-        "users": list(active_users)
-    }
-    json_str = json.dumps(data, indent=4, ensure_ascii=False)
-    bio = io.BytesIO(json_str.encode("utf-8"))
+    txt_content = f"""QUMTTA BOT DB BACKUP
+Timestamp: {int(datetime.now(tz=timezone.utc).timestamp())}
+
+=== GROUPS ===
+{chr(10).join(map(str, sorted(ACTIVE_GROUPS)))}
+
+=== USERS ===
+{chr(10).join(map(str, sorted(active_users)))}
+"""
+    bio = io.BytesIO(txt_content.encode("utf-8"))
     timestamp = int(datetime.now(tz=timezone.utc).timestamp())
-    bio.name = f"qumtta_db_{timestamp}.json"  # ← YE ZAROORI HAI
+    bio.name = f"qumtta_db_{timestamp}.txt"
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
-        document=InputFile(bio, filename=bio.name)
-    )
-    await update.message.reply_text("DB exported! Use /updb to restore.")
-        
+        document=InputFile(bio, filename=bio.name),
+        caption="DB Backup (.txt) - Use /updb to restore"
+    )        
 # -----------------------------
 # MAIN (unchanged except for new end_quiz)
 # -----------------------------
@@ -1435,3 +1438,4 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
