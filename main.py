@@ -434,10 +434,12 @@ async def start_quiz_button_cb(update: Update, context: ContextTypes.DEFAULT_TYP
         "*Note:-*\n"
         "1️⃣ Leaderboard will be prepared on the basis of your *first attempt only.*\n\n"
         "📢 *Quiz Timings:*\n"
+        "💻 *English Vocab:*\n"
+        "🕧 08:00 PM\n\n"
+        "💻 *English Practice:*\n"
+        "🕧 08:15 PM\n\n"
         "💻 *Computer:*\n"
-        "🕧 02:30 PM  🕓 6:30 PM\n\n"
-        "💻 *English:*\n"
-        "🕧 03:00 PM  🕓 7:00PM\n\n"
+        "🕧 08:45 PM\n\n"
         "👇 *Click below to start the Quiz!*\n"
         "_Minimum 2 participants required to start._"
     )
@@ -529,10 +531,12 @@ async def start_quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "*Note:-*\n"
         "1️⃣ Leaderboard will be prepared on the basis of your *first attempt only.*\n\n"
         "📢 *Quiz Timings:*\n"
+        "💻 *English Vocab:*\n"
+        "🕧 08:00 PM\n\n"
+        "💻 *English Practice:*\n"
+        "🕧 08:15 PM\n\n"
         "💻 *Computer:*\n"
-        "🕧 02:30 PM  🕓 6:30 PM\n\n"
-        "💻 *English:*\n"
-        "🕧 03:00 PM  🕓 7:00PM\n\n"
+        "🕧 08:45 PM\n\n"
         "👇 *Click below to start the Quiz!*\n"
         "_Minimum 2 participants required to start._"
     )
@@ -914,10 +918,12 @@ async def start_all_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*Note:-*\n"
         "1️⃣ Leaderboard will be prepared on the basis of your *first attempt only.*\n\n"
         "📢 *Quiz Timings:*\n"
+        "💻 *English Vocab:*\n"
+        "🕧 08:00 PM\n\n"
+        "💻 *English Practice:*\n"
+        "🕧 08:15 PM\n\n"
         "💻 *Computer:*\n"
-        "🕧 02:30 PM  🕓 6:30 PM\n\n"
-        "💻 *English:*\n"
-        "🕧 03:00 PM  🕓 7:00PM\n\n"
+        "🕧 08:45 PM\n\n"
         "👇 *Click below to start the Quiz!*\n"
         "_Minimum 2 participants required to start._"
     )
@@ -1505,4 +1511,5 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
