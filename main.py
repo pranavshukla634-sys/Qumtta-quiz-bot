@@ -345,6 +345,9 @@ async def correct_answers_received(update: Update, context: ContextTypes.DEFAULT
 # -----------------------------
 # Handle uploaded JSON (alternative flow)
 # -----------------------------
+# -----------------------------
+# Handle uploaded JSON / TXT (FULL WORKING CODE)
+# -----------------------------
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != 'private':
         return
@@ -355,19 +358,77 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not document:
         return
 
+    file = await document.get_file()
     filename = document.file_name
     file_lower = filename.lower()
 
     # ========= .JSON → QUIZ LOAD =========
     if file_lower.endswith('.json'):
-        # ... (पहले वाला JSON load logic)
-        # ← वही कोड जो मैंने पिछले message में दिया था
+        try:
+            file_bytes = await file.download_as_bytearray()
+            data = json.loads(file_bytes)
+            quiz_id = data.get("quiz_id") or str(int(datetime.now(tz=timezone.utc).timestamp()))
+            data["quiz_id"] = quiz_id
+
+            global current_quiz
+            current_quiz = data
+            readiness_quiz_map[quiz_id] = data
+
+            safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in data.get("title", "quiz"))
+            await send_json_file_to_user(update.effective_chat.id, context, data, filename=f"{safe_title}_loaded.json")
+
+            buttons = [
+                [InlineKeyboardButton("Start Quiz", callback_data=f"start_quiz:{quiz_id}"),
+                 InlineKeyboardButton("Publish Result", callback_data=f"publish_result:{quiz_id}")],
+                [InlineKeyboardButton("Start in All Groups", callback_data=f"start_all:{quiz_id}"),
+                 InlineKeyboardButton("Publish in All Groups", callback_data=f"publish_all:{quiz_id}")]
+            ]
+            await update.message.reply_text(
+                "Quiz loaded from JSON!\nUse buttons to start.",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Failed to load JSON: {str(e)}")
         return
 
-    # ========= .TXT → DB RESTORE =========
+    # ========= .TXT → DB RESTORE (qumtta_db_*.txt) =========
     if filename.startswith('qumtta_db_') and file_lower.endswith('.txt'):
-        # ... (पहले वाला TXT restore logic)
-        # ← वही कोड जो मैंने पिछले message में दिया था
+        try:
+            file_bytes = await file.download_as_bytearray()
+            content = file_bytes.decode("utf-8")
+
+            new_groups = set()
+            new_users = set()
+            section = None
+            for line in content.splitlines():
+                line = line.strip()
+                if line == "=== GROUPS ===":
+                    section = "groups"
+                elif line == "=== USERS ===":
+                    section = "users"
+                elif line and line[0].isdigit() or line.startswith('-'):
+                    try:
+                        num = int(line.split()[0]) if line[0] in "-0123456789" else int(line)
+                        if section == "groups":
+                            new_groups.add(num)
+                        elif section == "users":
+                            new_users.add(num)
+                    except:
+                        continue
+
+            # Apply restore
+            ACTIVE_GROUPS.clear()
+            ACTIVE_GROUPS.update(new_groups)
+            active_users.clear()
+            active_users.update(new_users)
+
+            await update.message.reply_text(
+                f"DB RESTORED!\n"
+                f"Groups: {len(ACTIVE_GROUPS)}\n"
+                f"Users: {len(active_users)}"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Failed to restore DB: {str(e)}")
         return
 
     # ========= INVALID FILE =========
@@ -1438,4 +1499,5 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
