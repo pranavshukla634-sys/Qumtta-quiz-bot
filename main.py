@@ -1345,7 +1345,8 @@ async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 # -----------------------------
 # MAIN (unchanged except for new end_quiz)
-# -----------------------------def main():
+# -----------------------------
+def main():
     """Start the bot — FULLY SECURED FOR ADMIN ONLY"""
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -1434,7 +1435,3 @@ if __name__ == "__main__":
     
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
-
-
-
-
