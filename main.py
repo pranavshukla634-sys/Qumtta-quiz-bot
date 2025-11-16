@@ -1822,6 +1822,10 @@ async def sch_quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     text += "_-Your Qumtta Quiz Bot_ 🤖"
     await update.message.reply_text(text, parse_mode="Markdown")
+def start_self_ping_loop():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(self_ping())
    
 import aiohttp
 app = Flask(__name__)
@@ -1918,7 +1922,6 @@ def main():
     application.add_handler(CommandHandler("stop_poll", stop_poll_command))
     application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Regex(r'^\d{1,2}:\d{2}$'), admin_time_handler))
     application.add_handler(CallbackQueryHandler(start_quiz_now_cb, pattern=r"^start_quiz_now:"))
-    asyncio.create_task(self_ping())
     logger.info("Qumtta Quiz Bot started in WEBHOOK mode...")
 
     # ====================== START WEBHOOK SERVER ======================
@@ -1937,6 +1940,8 @@ if __name__ == "__main__":
     print("Starting Health Server (Flask on 8081)...")
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("Starting Qumtta Quiz Bot (Webhook on 8080)...")
-    main()
+    print("Starting Self-Ping Service...")
+    threading.Thread(target=start_self_ping_loop, daemon=True).start()
 
+    print("Starting Qumtta Quiz Bot in Webhook Mode...")
+    main()
