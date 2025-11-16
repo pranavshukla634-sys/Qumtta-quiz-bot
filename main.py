@@ -1823,16 +1823,26 @@ async def sch_quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "_-Your Qumtta Quiz Bot_ 🤖"
     await update.message.reply_text(text, parse_mode="Markdown")
    
+import aiohttp
 app = Flask(__name__)
 
 @app.route("/")
-def health():
-    return "Qumtta Quiz Bot is ALIVE! 🤖", 200
+def home():
+    return "Qumtta Quiz Bot is ALIVE!", 200
 
 def run_flask():
-    # Health check server on separate port (8081)
     app.run(host="0.0.0.0", port=8081)
-
+async def self_ping():
+    url = "https://qumtta-quiz-bot.onrender.com/"
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as resp:
+                    print("Self-Ping OK", resp.status)
+        except Exception as e:
+            print("Self-Ping failed:", e)
+        
+        await asyncio.sleep(600)
 # ---------------------------
 # TELEGRAM BOT (WEBHOOK MODE)
 # ---------------------------
@@ -1908,7 +1918,7 @@ def main():
     application.add_handler(CommandHandler("stop_poll", stop_poll_command))
     application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Regex(r'^\d{1,2}:\d{2}$'), admin_time_handler))
     application.add_handler(CallbackQueryHandler(start_quiz_now_cb, pattern=r"^start_quiz_now:"))
-
+    asyncio.create_task(self_ping())
     logger.info("Qumtta Quiz Bot started in WEBHOOK mode...")
 
     # ====================== START WEBHOOK SERVER ======================
@@ -1929,3 +1939,4 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot (Webhook on 8080)...")
     main()
+
