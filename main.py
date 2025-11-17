@@ -37,7 +37,7 @@ from telegram.ext import (
 # 🔒 HARD-CODED CONFIG
 # -----------------------------
 OWNER_ID = 7370025284
-ADMIN_IDS: set[int] = [OWNER_ID, 7017782731]
+ADMIN_IDS: set[int] = {OWNER_ID}
 GROUP_ID = -1002621279973
 BOT_TOKEN = "8458622801:AAFWZDxnB8ZGoQEtrljhuPGA8GHzghytpLU"
 HEALTH_URL = "https://qumtta-quiz-bot.onrender.com"
@@ -2055,6 +2055,7 @@ if __name__ == "__main__":
     threading.Thread(target=start_self_ping_loop, daemon=True).start()
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
+
 
 
 
