@@ -6,6 +6,7 @@ import threading
 import os
 import random
 import sys
+import aiohttp
 import time
 import requests
 from random import randint
@@ -2054,4 +2055,5 @@ if __name__ == "__main__":
     threading.Thread(target=start_self_ping_loop, daemon=True).start()
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
+
 
