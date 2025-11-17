@@ -81,7 +81,7 @@ poll_to_quiz: Dict[str, str] = {}          # poll_id → quiz_id
 poll_to_group: Dict[str, int] = {}         # poll_id → group_id
 
 awaiting_start_time: Dict[int, Dict[str, Any]] = {}
-is paused 
+is_paused: bool = False 
 # -----------------------------
 # Logging
 # -----------------------------
@@ -2056,6 +2056,7 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
 
