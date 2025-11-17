@@ -2032,3 +2032,26 @@ def main():
     application.add_handler(CommandHandler("rm_admin", remove_admin))
     application.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Regex(r'^\d{1,2}:\d{2}$'), admin_time_handler))
     application.add_handler(CallbackQueryHandler(start_quiz_now_cb, pattern=r"^start_quiz_now:"))
+    logger.info("Qumtta Quiz Bot started in WEBHOOK mode...")
+
+    # ====================== START WEBHOOK SERVER ======================
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=8080,  # Render main port
+        url_path=BOT_TOKEN,
+        webhook_url=f"https://qumtta-quiz-bot.onrender.com/{BOT_TOKEN}"
+    )
+
+
+# ---------------------------
+# APP START POINT
+# ---------------------------
+if __name__ == "__main__":
+    print("Starting Health Server (Flask on 8081)...")
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    print("Starting Self-Ping Service...")
+    threading.Thread(target=start_self_ping_loop, daemon=True).start()
+
+    print("Starting Qumtta Quiz Bot in Webhook Mode...")
+
