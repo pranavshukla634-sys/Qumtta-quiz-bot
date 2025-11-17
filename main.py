@@ -81,7 +81,7 @@ poll_to_quiz: Dict[str, str] = {}          # poll_id → quiz_id
 poll_to_group: Dict[str, int] = {}         # poll_id → group_id
 
 awaiting_start_time: Dict[int, Dict[str, Any]] = {}
- 
+is paused 
 # -----------------------------
 # Logging
 # -----------------------------
@@ -2055,6 +2055,7 @@ if __name__ == "__main__":
     threading.Thread(target=start_self_ping_loop, daemon=True).start()
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
+    main()
 
 
 
