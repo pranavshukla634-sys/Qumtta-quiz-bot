@@ -984,7 +984,8 @@ async def admin_time_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def start_scheduled_quiz(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     data = job.data
-   
+
+    # Remove finished schedule
     for sch in scheduled_quizzes[:]:
         if sch['job'] == job:
             scheduled_quizzes.remove(sch)
@@ -1002,6 +1003,9 @@ async def start_scheduled_quiz(context: ContextTypes.DEFAULT_TYPE):
     total_q = len(quiz.get("questions", []))
     timer = quiz.get("timer", 30)
 
+    # MODE TAG below timer
+    mode_tag = "Qumtta Wolrd Mode" if mode == "single" else "All Groups Mode"
+
     intro_text = (
         "‼️ *Welcome to Qumtta World!* ‼️\n"
         "⚜ *I am Your Qumtta Quiz Bot* ⚜\n\n"
@@ -1009,6 +1013,8 @@ async def start_scheduled_quiz(context: ContextTypes.DEFAULT_TYPE):
         f"📘 *Quiz Title:* {title}\n"
         f"❓ *Total Questions:* {total_q}\n"
         f"⏱ *Timer:* {timer} sec/question\n"
+        f"🎛 *Mode:* {mode_tag}\n"
+        f"🎛 *Quiz will start within 45 sec..*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "👇 *Join :- Qumtta World* 👇"
     )
@@ -1017,103 +1023,95 @@ async def start_scheduled_quiz(context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🌐 Join Qumtta World", url="https://t.me/+e0yQys0Dvf5lNGRl")]
     ])
 
-    # ---------- SINGLE GROUP FLOW ----------
+    # ======================================================
+    # =============== SINGLE GROUP MODE ====================
+    # ======================================================
     if mode == "single":
-        # Send intro in main group
-        msg = await context.bot.send_message(
-            chat_id=GROUP_ID,
-            text=intro_text,
-            parse_mode="Markdown",
-            reply_markup=join_button
-        )
 
-        # Wait 45 sec → then countdown (animated edits)
-        await asyncio.sleep(10)
+        # Intro send — retry + random delay
+        await asyncio.sleep(random.uniform(1, 4))
 
-        for n in ("3", "2", "1"):
-            await context.bot.edit_message_text(
-                chat_id=GROUP_ID,
-                message_id=msg.message_id,
-                text=intro_text + f"\n\n*Starting in: {n}*",
-                parse_mode="Markdown",
-                reply_markup=join_button
-            )
-            await asyncio.sleep(1)
+        msg = None
+        for attempt in range(3):
+            try:
+                msg = await context.bot.send_message(
+                    chat_id=GROUP_ID,
+                    text=intro_text,
+                    parse_mode="Markdown",
+                    reply_markup=join_button
+                )
+                break
+            except Exception as e:
+                wait = 2 + attempt
+                logger.error(f"Intro failed in single mode, retrying in {wait}s… {e}")
+                await asyncio.sleep(wait)
 
-        await context.bot.edit_message_text(
-            chat_id=GROUP_ID,
-            message_id=msg.message_id,
-            text=intro_text + "\n\n🚀 *Go!*",
-            parse_mode="Markdown",
-            reply_markup=join_button
-        )
+        if msg is None:
+            logger.error("❌ Intro failed in single-group mode even after retries")
+            return
 
-        # Initialize per-group quiz state & start
+        # Random delay 1–45 sec → DIRECT STT
+        delay = random.randint(1, 45)
+        await asyncio.sleep(delay)
+
         await _init_and_start_quiz_in_group(context, GROUP_ID, quiz)
         return
 
-    # ---------- MULTI-GROUP FLOW (ALL) ----------
+    # ======================================================
+    # =============== MULTI GROUP MODE (ALL) ===============
+    # ======================================================
     elif mode == "all":
+
         sent_messages = []
+
         try:
             expected_groups = set(ACTIVE_GROUPS)
             all_mode_tracking[quiz_id] = {
                 'expected': expected_groups.copy(),
                 'completed': set(),
-                'data': {},   # group_id -> user_stats (copied when group finishes)
+                'data': {},
                 'started_at': datetime.now(timezone.utc)
             }
         except Exception as e:
             logger.warning(f"Failed to register all_mode_tracking for {quiz_id}: {e}")
-        # Send intro in ALL groups at same moment
+
+        # ===================== INTRO SEND ======================
         for gid in ACTIVE_GROUPS:
-            try:
-                msg = await context.bot.send_message(
-                    chat_id=gid,
-                    text=intro_text,
-                    parse_mode="Markdown",
-                    reply_markup=join_button
-                )
-                sent_messages.append((gid, msg.message_id))
-            except Exception as e:
-                logger.error(f"Failed to send intro to {gid}: {e}")
 
-        # During next 45 sec → start countdown randomly in every group
-        for gid, mid in sent_messages:
-            delay = random.randint(1, 45)  # to avoid API flood
+            # Random delay before intro (anti-flood)
+            await asyncio.sleep(random.uniform(1, 4))
 
-            async def start_single_group_countdown(gid_local, mid_local, d_local):
-                await asyncio.sleep(d_local)
-
-                for n in ("3", "2", "1"):
-                    try:
-                        await context.bot.edit_message_text(
-                            chat_id=gid_local,
-                            message_id=mid_local,
-                            text=intro_text + f"\n\n*Starting in: {n}*",
-                            parse_mode="Markdown",
-                            reply_markup=join_button
-                        )
-                    except Exception:
-                        pass
-                    await asyncio.sleep(1)
-
+            msg = None
+            for attempt in range(3):
                 try:
-                    await context.bot.edit_message_text(
-                        chat_id=gid_local,
-                        message_id=mid_local,
-                        text=intro_text + "\n\n🚀 *Go!*",
+                    msg = await context.bot.send_message(
+                        chat_id=gid,
+                        text=intro_text,
                         parse_mode="Markdown",
                         reply_markup=join_button
                     )
-                except:
-                    pass
+                    break
+                except Exception as e:
+                    wait = 2 + attempt
+                    logger.error(f"Intro send failed to {gid}, retrying in {wait}s… {e}")
+                    await asyncio.sleep(wait)
 
-                # Start quiz in this group (independent)
-                await _init_and_start_quiz_in_group(context, gid_local, quiz)
+            if msg is None:
+                logger.error(f"❌ Intro failed in {gid} even after retries")
+                continue
 
-            asyncio.create_task(start_single_group_countdown(gid, mid, delay))
+            sent_messages.append((gid, msg.message_id))
 
+        # ================== DELAY → DIRECT START ==================
+        for gid, mid in sent_messages:
+
+            delay = random.randint(1, 45)
+
+            async def __delay_and_start(g=gid, d=delay):
+                await asyncio.sleep(d)
+                await _init_and_start_quiz_in_group(context, g, quiz)
+
+            asyncio.create_task(__delay_and_start())
 
 # -------- helper: initialize & start a quiz in a single group ----------
 async def _init_and_start_quiz_in_group(context: ContextTypes.DEFAULT_TYPE, chat_id: int, quiz: dict):
@@ -1615,6 +1613,8 @@ async def start_quiz_now_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📘 *Quiz Title:* {title}\n"
         f"❓ *Total Questions:* {total_q}\n"
         f"⏱ *Timer:* {timer} sec/question\n"
+        f"🎛 *Mode:* Qumtta World Mode\n"
+        f"🎛 *Quiz will start within 45 sec*\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "👇 *Join :- Qumtta World* 👇"
     )
@@ -1634,34 +1634,8 @@ async def start_quiz_now_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to send start intro in group: {e}")
         return
-
-    # Countdown
     await asyncio.sleep(10)
-    for n in ("3", "2", "1"):
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat.id,
-                message_id=msg.message_id,
-                text=intro_text + f"\n\n*Starting in: {n}*",
-                parse_mode="Markdown",
-                reply_markup=join_button
-            )
-        except:
-            pass
-        await asyncio.sleep(1)
-
-    # Go
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat.id,
-            message_id=msg.message_id,
-            text=intro_text + "\n\n🚀 *Go!*",
-            parse_mode="Markdown",
-            reply_markup=join_button
-        )
-    except:
-        pass
-
+    
     # ⭐ Start quiz in SAME ACTIVE GROUP
     await _init_and_start_quiz_in_group(context, chat.id, quiz)
 
@@ -2056,6 +2030,7 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
 
