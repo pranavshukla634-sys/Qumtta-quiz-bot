@@ -131,7 +131,7 @@ def load_db():
         active_users = set()
         ADMIN_IDS = {OWNER_ID}
 
-def save_db():
+def save_db(context: ContextTypes.DEFAULT_TYPE = None):   # ← यहीं change
     data = {
         "groups": sorted(list(ACTIVE_GROUPS)),
         "users":  sorted(list(active_users)),
@@ -140,7 +140,7 @@ def save_db():
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        logger.info("DB saved successfully")
+        logger.info("DB saved successfully (auto-save)")
     except Exception as e:
         logger.error(f"DB save failed: {e}")
 @admin_only
