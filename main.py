@@ -108,7 +108,7 @@ async def get_group_name(bot, gid):
         chat = await bot.get_chat(gid)
         return chat.title or str(gid)
     except:
-        return str(gid
+        return str(gid)
 
 DB_FILE = "qumtta_db.json"
 
@@ -2120,4 +2120,5 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
