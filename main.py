@@ -112,38 +112,63 @@ async def get_group_name(bot, gid):
 
 DB_FILE = "qumtta_db.json"
 
+# =========================
+#  SYNC SAVE (startup use)
+# =========================
+def save_db_sync():
+    data = {
+        "groups": sorted(list(ACTIVE_GROUPS)),
+        "users":  sorted(list(active_users)),
+        "admins": sorted(list(ADMIN_IDS)),
+    }
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info("DB saved successfully (sync)")
+    except Exception as e:
+        logger.error(f"DB save failed (sync): {e}")
+
+
+# =========================
+#  LOAD DATABASE
+# =========================
 def load_db():
     global ACTIVE_GROUPS, active_users, ADMIN_IDS
+
     if not Path(DB_FILE).exists():
-        save_db()  # पहली बार file बना देगा
+        save_db_sync()      # FIRST TIME FILE CREATE
         return
-    
+
     try:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            ACTIVE_GROUPS = set(data.get("groups", []))
-            active_users  = set(data.get("users", []))
-            ADMIN_IDS     = set(data.get("admins", [OWNER_ID]))  # OWNER हमेशा admin रहेगा
-        logger.info(f"DB loaded: {len(ACTIVE_GROUPS)} groups, {len(active_users)} users, {len(ADMIN_IDS)} admins")
+
+        ACTIVE_GROUPS = set(data.get("groups", []))
+        active_users  = set(data.get("users", []))
+
+        # admin ids ensure int
+        ADMIN_IDS = set(int(x) for x in data.get("admins", [OWNER_ID]))
+
+        logger.info(
+            f"DB loaded: {len(ACTIVE_GROUPS)} groups, "
+            f"{len(active_users)} users, "
+            f"{len(ADMIN_IDS)} admins"
+        )
+
     except Exception as e:
         logger.error(f"DB load failed: {e} → Using empty sets")
         ACTIVE_GROUPS = {GROUP_ID}
         active_users = set()
         ADMIN_IDS = {OWNER_ID}
 
-async def save_db(context: ContextTypes.DEFAULT_TYPE = None):
-    data = {
-        "groups": sorted(list(ACTIVE_GROUPS)),
-        "users":  sorted(list(active_users)),
-        "admins": sorted(list(ADMIN_IDS))
-    }
-    try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
 
-        logger.info("DB saved successfully (auto-save)")
-    except Exception as e:
-        logger.error(f"DB save failed: {e}")
+# =========================
+#  ASYNC SAVE (JobQueue)
+# =========================
+async def save_db(context=None):
+    """Auto-save DB every few minutes (async safe)."""
+    save_db_sync()     # async function uses sync writer
+    logger.info("DB saved successfully (auto-save)")
 
 @admin_only
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2126,6 +2151,7 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
 
