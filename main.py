@@ -131,7 +131,7 @@ def load_db():
         active_users = set()
         ADMIN_IDS = {OWNER_ID}
 
-def save_db(context: ContextTypes.DEFAULT_TYPE = None):   # ← यहीं change
+async def save_db(context: ContextTypes.DEFAULT_TYPE = None):
     data = {
         "groups": sorted(list(ACTIVE_GROUPS)),
         "users":  sorted(list(active_users)),
@@ -140,9 +140,11 @@ def save_db(context: ContextTypes.DEFAULT_TYPE = None):   # ← यहीं cha
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+
         logger.info("DB saved successfully (auto-save)")
     except Exception as e:
         logger.error(f"DB save failed: {e}")
+
 @admin_only
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
@@ -2029,10 +2031,9 @@ def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     load_db()   # ← ये लाइन जोड़ो
     application.job_queue.run_repeating(
-        callback=save_db,           # अब context मिलेगा
-        interval=300,
-        first=10,
-        name="auto_save_db"
+    save_db,
+    interval=300,   # हर 5 मिनट में save
+    first=10        # bot start होने के 10 sec बाद पहली बार
     )
 
     # ====================== PUBLIC COMMANDS ======================
@@ -2125,6 +2126,7 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
 
