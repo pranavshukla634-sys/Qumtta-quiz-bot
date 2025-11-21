@@ -9,6 +9,7 @@ import sys
 import aiohttp
 import time
 import requests
+from pathlib import Path
 from random import randint
 from flask import Flask
 from typing import List, Dict, Any, Set
@@ -80,6 +81,7 @@ poll_to_group: Dict[str, int] = {}         # poll_id → group_id
 
 awaiting_start_time: Dict[int, Dict[str, Any]] = {}
 is_paused: bool = False 
+paused_groups: Set[int] = set()
 # -----------------------------
 # Logging
 # -----------------------------
@@ -106,7 +108,41 @@ async def get_group_name(bot, gid):
         chat = await bot.get_chat(gid)
         return chat.title or str(gid)
     except:
-        return str(gid)
+        return str(gid
+
+DB_FILE = "qumtta_db.json"
+
+def load_db():
+    global ACTIVE_GROUPS, active_users, ADMIN_IDS
+    if not Path(DB_FILE).exists():
+        save_db()  # पहली बार file बना देगा
+        return
+    
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            ACTIVE_GROUPS = set(data.get("groups", []))
+            active_users  = set(data.get("users", []))
+            ADMIN_IDS     = set(data.get("admins", [OWNER_ID]))  # OWNER हमेशा admin रहेगा
+        logger.info(f"DB loaded: {len(ACTIVE_GROUPS)} groups, {len(active_users)} users, {len(ADMIN_IDS)} admins")
+    except Exception as e:
+        logger.error(f"DB load failed: {e} → Using empty sets")
+        ACTIVE_GROUPS = {GROUP_ID}
+        active_users = set()
+        ADMIN_IDS = {OWNER_ID}
+
+def save_db():
+    data = {
+        "groups": sorted(list(ACTIVE_GROUPS)),
+        "users":  sorted(list(active_users)),
+        "admins": sorted(list(ADMIN_IDS))
+    }
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info("DB saved successfully")
+    except Exception as e:
+        logger.error(f"DB save failed: {e}")
 @admin_only
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
@@ -324,6 +360,7 @@ async def send_json_file_to_user(user_chat_id: int, context: ContextTypes.DEFAUL
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     active_users.add(user.id)
+    save_db()
     chat = update.effective_chat
     if user.id in ADMIN_IDS:
         text = (
@@ -1134,6 +1171,9 @@ async def _init_and_start_quiz_in_group(context: ContextTypes.DEFAULT_TYPE, chat
     await send_next_question(context, chat_id)
 
 async def send_next_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    if chat_id in paused_groups:
+        logger.info(f"Group {chat_id} paused — skipping next question")
+        return
     state = active_quiz_state.get(chat_id)
     if not state or not state.get('started'):
         return
@@ -1175,7 +1215,6 @@ async def send_next_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
 
         # attach poll_id → chat mapping so poll_answer can find which group this poll belongs to
         poll_to_quiz[poll_id] = state['quiz_id']
-        poll_to_group = globals().setdefault('poll_to_group', {})
         poll_to_group[poll_id] = chat_id
 
         # schedule next question for this group
@@ -1210,22 +1249,27 @@ async def send_next_question(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
         return
 
 async def next_question_callback(context: ContextTypes.DEFAULT_TYPE):
+    # Extract chat_id from job data
     job_data = context.job.data
     if isinstance(job_data, dict):
         chat_id = job_data.get('chat_id')
     else:
         chat_id = job_data  # fallback
+
     if not chat_id:
         return
 
-    # move index forward and send next question
     state = active_quiz_state.get(chat_id)
-    if not state:
+    if not state or not state.get('started'):
         return
 
-    # increment index for this group's sequence
+    # सबसे ज़रूरी चेक: अगर ग्रुप paused है तो index बिल्कुल मत बढ़ाओ!
+    if chat_id in paused_groups:
+        logger.info(f"next_question_callback blocked — group {chat_id} is paused. Next question delayed.")
+        return
+
+    # अब बेफिक्र होकर index बढ़ाओ और अगला सवाल भेजो
     state['index'] += 1
-    # send next
     await send_next_question(context, chat_id)
 
 # -------------------------
@@ -1692,6 +1736,7 @@ async def notify_admin_new_group(update: Update, context: ContextTypes.DEFAULT_T
     if chat.type not in ("group", "supergroup"):
         return
     ACTIVE_GROUPS.add(chat.id)
+    save_db()
     # Invite link जनरेट करने की कोशिश
     try:
         invite_link = await context.bot.export_chat_invite_link(chat_id=chat.id)
@@ -1764,47 +1809,89 @@ async def remove_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
   
     ACTIVE_GROUPS.remove(group_id)
+    save_db()
     await update.message.reply_text(f"Bot ne group chhoda aur list se hata diya:\n`{group_id}`")
 
+@admin_only
 async def pause_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global is_paused
-
-    if update.effective_user.id not in ADMIN_IDS:
-        return
+    global is_paused, paused_groups
 
     if is_paused:
         await update.message.reply_text("Quiz पहले से paused है!")
         return
 
     is_paused = True
-    await update.message.reply_text("⏸️ All running quizzes PAUSED!")
+    paused_groups.clear()
 
+    active_count = 0
+    for chat_id, state in active_quiz_state.items():
+        if state.get('started'):
+            paused_groups.add(chat_id)
+            active_count += 1
+
+    if active_count == 0:
+        await update.message.reply_text("कोई quiz नहीं चल रहा।")
+        is_paused = False
+    else:
+        await update.message.reply_text(
+            f"⏸️ Quiz PAUSED!\n\n"
+            f"जो सवाल अभी चल रहा है — वो पूरा होने दो।\n"
+            f"उसके बाद कोई नया सवाल नहीं आएगा।\n"
+            f"{active_count} ग्रुप्स affected।"
+        )
+
+        # सभी ग्रुप्स को मैसेज भेजो
+        for chat_id in paused_groups:
+            try:
+                await context.bot.send_message(
+                    chat_id,
+                    "⏸️ *Admin ने Quiz Pause कर दिया है!*\n\n"
+                    "वर्तमान सवाल का जवाब देने के बाद अगला सवाल नहीं आएगा।\n"
+                    "जल्द ही Resume किया जाएगा...",
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+
+
+@admin_only
 async def resume_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global is_paused
-
-    if update.effective_user.id not in ADMIN_IDS:
-        return
+    global is_paused, paused_groups
 
     if not is_paused:
-        await update.message.reply_text("Quiz पहले से चल रहा है!")
+        await update.message.reply_text("Quiz paused नहीं है!")
         return
 
     is_paused = False
-    await update.message.reply_text("▶️ All quizzes RESUMED!")
+    resume_count = len(paused_groups)
 
-    # हर active group में अगला question भेजो
-    for gid, state in list(active_quiz_state.items()):
-        # अगर quiz खतम हो चुका है तो skip
-        if not state.get("started"):
-            continue
+    if resume_count == 0:
+        await update.message.reply_text("कोई paused quiz नहीं मिला।")
+        return
 
-        # next question schedule after slight delay
-        context.job_queue.run_once(
-            next_question_callback,
-            1,  # 1 second delay
-            data={'chat_id': gid},
-            name=f"resume_{gid}"
-        )
+    # हर ग्रुप में resume मैसेज + अगला सवाल 5-8 सेकंड बाद
+    for chat_id in paused_groups:
+        try:
+            delay = random.randint(5, 10)
+            await context.bot.send_message(
+                chat_id,
+                f"Resume हो गया!\n\n"
+                f"अगला सवाल {delay} सेकंड में आ रहा है...",
+                parse_mode="Markdown"
+            )
+
+            # अगला सवाल schedule करो
+            context.job_queue.run_once(
+                next_question_callback,
+                delay,
+                data={'chat_id': chat_id},
+                name=f"resume_next_{chat_id}_{int(time.time())}"
+            )
+        except Exception as e:
+            logger.error(f"Resume failed in {chat_id}: {e}")
+
+    paused_groups.clear()
+    await update.message.reply_text(f"Resume सफल! {resume_count} ग्रुप्स में quiz दोबारा शुरू।")
 
 # -------------------------------------------------
 # ADMIN: /stats → total users + total groups
@@ -1881,6 +1968,7 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     ADMIN_IDS.add(uid)
+    save_db()
     await update.message.reply_text(f"✅ User `{uid}` added as admin.", parse_mode="Markdown")
 
 async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1900,6 +1988,7 @@ async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if uid in ADMIN_IDS:
         ADMIN_IDS.remove(uid)
+        save_db()
         await update.message.reply_text(f"🗑️ Removed admin `{uid}`", parse_mode="Markdown")
     else:
         await update.message.reply_text("❌ That user is not an admin.")
@@ -1938,6 +2027,8 @@ def main():
 
     # ====================== BUILD APPLICATION ======================
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    load_db()   # ← ये लाइन जोड़ो
+    application.job_queue.run_repeating(save_db, interval=300, first=10)
 
     # ====================== PUBLIC COMMANDS ======================
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, notify_admin_new_group))
@@ -2029,10 +2120,4 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
-
-
-
-
-
-
 
