@@ -2028,7 +2028,12 @@ def main():
     # ====================== BUILD APPLICATION ======================
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     load_db()   # ← ये लाइन जोड़ो
-    application.job_queue.run_repeating(save_db, interval=300, first=10)
+    application.job_queue.run_repeating(
+        callback=save_db,           # अब context मिलेगा
+        interval=300,
+        first=10,
+        name="auto_save_db"
+    )
 
     # ====================== PUBLIC COMMANDS ======================
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, notify_admin_new_group))
@@ -2120,5 +2125,6 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
+
 
 
