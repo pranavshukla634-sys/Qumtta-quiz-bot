@@ -58,7 +58,9 @@ ACTIVE_GROUPS: Set[int] = {GROUP_ID} # Main group + auto-add new ones
     POLL_COLLECT,
     POLL_CORRECT,
 ) = range(100, 104) 
-
+# -----------------------------
+# GLOBAL RUNTIME DATA
+# -----------------------------
 # ================= GLOBAL STATE (must be at top) =================
 quiz_store: Dict[str, Dict] = {}
 poll_quiz_data: Dict[int, Dict] = {}
@@ -1853,11 +1855,10 @@ async def sch_quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mins_left = int((start - now_ist).total_seconds() // 60)
         duration_min = sch['duration_sec'] // 60
         status = "Starting soon" if mins_left <= 0 else f"{mins_left} min left"
-        mode_display = "Qumtta World Mode" if sch['mode'] == "single" else "All Group Mode"
         text += (
             f"{i}. *{sch['title']}*\n"
             f" Start: `{start.strftime('%H:%M %d %b')}`\n"
-            f" Mode: `{mode_display}`\n"
+            f" Mode: `{sch['mode']}`\n"
             f" Duration: ~`{duration_min}` min\n"
             f" Status: `{status}`\n\n"
         )
@@ -2029,9 +2030,3 @@ if __name__ == "__main__":
 
     print("Starting Qumtta Quiz Bot in Webhook Mode...")
     main()
-
-
-
-
-
-
